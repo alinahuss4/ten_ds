@@ -38,29 +38,29 @@ class CrimeDashboard {
     async loadData() {
         try {
             // Load crime data
-            const crimeResponse = await fetch('df_crime.csv');
+            const crimeResponse = await fetch('df_crime_ext.csv');
             const crimeText = await crimeResponse.text();
             this.crimeData = this.parseCSV(crimeText);
 
             // Load call data
-            const callResponse = await fetch('df_call.csv');
+            const callResponse = await fetch('df_call_ext.csv');
             const callText = await callResponse.text();
             this.callData = this.parseCSV(callText);
 
             // Load suspect data
-            const suspectResponse = await fetch('df_suspect.csv');
+            const suspectResponse = await fetch('df_suspect_ext.csv');
             const suspectText = await suspectResponse.text();
             this.suspectData = this.parseCSV(suspectText);
 
             // Load confidence data
-            const confidenceResponse = await fetch('df_confidence.csv');
+            const confidenceResponse = await fetch('df_confidence_ext.csv');
             const confidenceText = await confidenceResponse.text();
             this.confidenceData = this.parseCSV(confidenceText);
 
-            // Load officer data
-            const officerResponse = await fetch('notional_response_team_officers.csv');
-            const officerText = await officerResponse.text();
-            this.officerData = this.parseCSV(officerText);
+            // Load police data
+            const policeResponse = await fetch('df_police_ext.csv');
+            const policeText = await policeResponse.text();
+            this.officerData = this.parseCSV(policeText);
 
             // Initialize with all data
             this.filteredData = this.crimeData.filter(row =>
