@@ -7,6 +7,9 @@ class CrimeDashboard {
         this.policeUnits = L.layerGroup();
         this.crimeData = [];
         this.callData = [];
+        this.suspectData = [];
+        this.officerData = [];
+        this.confidenceData = [];
         this.filteredData = [];
         this.activeCall = null;
 
@@ -30,9 +33,6 @@ class CrimeDashboard {
         // Add layer groups to map
         this.incidentMarkers.addTo(this.map);
         this.policeUnits.addTo(this.map);
-
-        // Add some simulated police units
-        this.addPoliceUnits();
     }
 
     async loadData() {
@@ -47,6 +47,21 @@ class CrimeDashboard {
             const callText = await callResponse.text();
             this.callData = this.parseCSV(callText);
 
+            // Load suspect data
+            const suspectResponse = await fetch('df_suspect.csv');
+            const suspectText = await suspectResponse.text();
+            this.suspectData = this.parseCSV(suspectText);
+
+            // Load confidence data
+            const confidenceResponse = await fetch('df_confidence.csv');
+            const confidenceText = await confidenceResponse.text();
+            this.confidenceData = this.parseCSV(confidenceText);
+
+            // Load officer data
+            const officerResponse = await fetch('notional_response_team_officers.csv');
+            const officerText = await officerResponse.text();
+            this.officerData = this.parseCSV(officerText);
+
             // Initialize with all data
             this.filteredData = this.crimeData.filter(row =>
                 row.Latitude && row.Longitude &&
@@ -59,10 +74,10 @@ class CrimeDashboard {
             this.updateHotspots();
             this.loadRecentCalls();
             this.createTimeline();
+            this.addPoliceUnits();
         } catch (error) {
             console.error('Error loading data:', error);
-            // Use mock data if files aren't available
-            this.loadMockData();
+            alert('Error loading CSV data. Please ensure all CSV files are present in the directory.');
         }
     }
 
@@ -205,32 +220,60 @@ class CrimeDashboard {
     }
 
     addPoliceUnits() {
-        const policePositions = [
-            { lat: 51.5074, lng: -0.1278, id: 'UNIT-001', status: 'Available' },
-            { lat: 51.5155, lng: -0.0922, id: 'UNIT-002', status: 'Busy' },
-            { lat: 51.4994, lng: -0.1270, id: 'UNIT-003', status: 'Available' },
-            { lat: 51.5287, lng: -0.2416, id: 'UNIT-004', status: 'En Route' },
-            { lat: 51.4545, lng: -0.1085, id: 'UNIT-005', status: 'Available' }
-        ];
+        // Use officer data from CSV to create police units
+        if (!this.officerData || this.officerData.length === 0) return;
 
-        policePositions.forEach(unit => {
-            const color = unit.status === 'Available' ? '#27ae60' :
-                         unit.status === 'Busy' ? '#e74c3c' : '#f39c12';
+        // Group officers by postcode and use the first few locations
+        const officersByLocation = {};
+        this.officerData.forEach(officer => {
+            const postcode = officer.postcode;
+            if (postcode) {
+                if (!officersByLocation[postcode]) {
+                    officersByLocation[postcode] = [];
+                }
+                officersByLocation[postcode].push(officer);
+            }
+        });
 
-            const icon = L.divIcon({
-                html: `<i class="fas fa-car" style="color: ${color}; font-size: 16px;"></i>`,
-                iconSize: [20, 20],
-                className: 'police-unit-marker'
-            });
+        // Create police units from officer locations (limit to first 10 for performance)
+        Object.entries(officersByLocation).slice(0, 10).forEach(([postcode, officers], index) => {
+            const totalOfficers = officers.reduce((sum, officer) =>
+                sum + parseInt(officer.Response_Team_Officers || 0), 0);
 
-            const marker = L.marker([unit.lat, unit.lng], { icon })
-                .bindPopup(`
-                    <strong>${unit.id}</strong><br>
-                    Status: ${unit.status}<br>
-                    Last Update: ${new Date().toLocaleTimeString()}
-                `);
+            // Find matching crime data to get coordinates for this postcode
+            const crimeAtLocation = this.crimeData.find(crime =>
+                crime.Postcode && crime.Postcode.includes(postcode.split(' ')[0])
+            );
 
-            this.policeUnits.addLayer(marker);
+            if (crimeAtLocation && crimeAtLocation.Latitude && crimeAtLocation.Longitude) {
+                const lat = parseFloat(crimeAtLocation.Latitude);
+                const lng = parseFloat(crimeAtLocation.Longitude);
+
+                if (!isNaN(lat) && !isNaN(lng)) {
+                    const unitId = `UNIT-${String(index + 1).padStart(3, '0')}`;
+                    const status = totalOfficers >= 5 ? 'Available' :
+                                 totalOfficers >= 3 ? 'En Route' : 'Busy';
+                    const color = status === 'Available' ? '#27ae60' :
+                                 status === 'Busy' ? '#e74c3c' : '#f39c12';
+
+                    const icon = L.divIcon({
+                        html: `<i class="fas fa-car" style="color: ${color}; font-size: 16px;"></i>`,
+                        iconSize: [20, 20],
+                        className: 'police-unit-marker'
+                    });
+
+                    const marker = L.marker([lat, lng], { icon })
+                        .bindPopup(`
+                            <strong>${unitId}</strong><br>
+                            Location: ${postcode}<br>
+                            Officers: ${totalOfficers}<br>
+                            Status: ${status}<br>
+                            Last Update: ${new Date().toLocaleTimeString()}
+                        `);
+
+                    this.policeUnits.addLayer(marker);
+                }
+            }
         });
     }
 
@@ -372,28 +415,33 @@ class CrimeDashboard {
     }
 
     simulateCall() {
-        const mockCalls = [
-            {
-                transcript: "Hello, my bicycle has been stolen from outside Liverpool Street Station. It happened about 20 minutes ago. It's a red mountain bike, Trek brand. I'm at postcode EC2M 7PN.",
-                crimeType: "Bicycle theft",
-                postcode: "EC2M 7PN",
-                suspect: "Male, approximately 25-30 years old, wearing dark clothing"
-            },
-            {
-                transcript: "Someone has just snatched my phone on Oxford Street near Bond Street tube station. Asian male, about 5'8\", ran towards Marble Arch. Postcode is W1C 1JN.",
-                crimeType: "Theft from the person",
-                postcode: "W1C 1JN",
-                suspect: "Asian male, 5'8\", running towards Marble Arch"
-            },
-            {
-                transcript: "My purse was stolen from my bag while I was shopping in Covent Garden. I didn't see who did it. I'm near the market, postcode WC2E 8RF.",
-                crimeType: "Theft from the person",
-                postcode: "WC2E 8RF",
-                suspect: "Unknown - theft from bag while shopping"
-            }
-        ];
+        if (!this.callData || this.callData.length === 0) {
+            console.error('No call data available');
+            return;
+        }
 
-        const call = mockCalls[Math.floor(Math.random() * mockCalls.length)];
+        // Get a random call from the CSV data
+        const randomCall = this.callData[Math.floor(Math.random() * this.callData.length)];
+
+        // Format the call data to match expected structure
+        const call = {
+            transcript: randomCall.Transcript || "No transcript available",
+            crimeType: randomCall['Crime Type'] || "Unknown",
+            postcode: randomCall.Postcode || "Unknown",
+            suspect: "Investigation ongoing"
+        };
+
+        // Try to find matching suspect data for this crime type and postcode
+        if (this.suspectData && this.suspectData.length > 0) {
+            const matchingSuspect = this.suspectData.find(suspect =>
+                suspect['Crime Type'] === call.crimeType ||
+                suspect.Postcode === call.postcode
+            );
+            if (matchingSuspect) {
+                call.suspect = `${matchingSuspect.Description || 'No description'} - ${matchingSuspect.Arrested === 'Yes' ? 'Arrested' : 'At large'}`;
+            }
+        }
+
         this.activeCall = call;
 
         // Display the transcript with typing effect
