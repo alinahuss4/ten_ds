@@ -363,7 +363,7 @@ class CrimeDashboard {
             const confidenceText = await confidenceResponse.text();
             this.confidenceData = this.parseCSV(confidenceText);
 
-            // Load police data
+            // Load police data (updated file name)
             const policeResponse = await fetch('df_police_ext.csv');
             const policeText = await policeResponse.text();
             this.officerData = this.parseCSV(policeText);
