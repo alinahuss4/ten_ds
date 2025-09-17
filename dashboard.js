@@ -5,6 +5,7 @@ class CrimeDashboard {
         this.heatmapLayer = null;
         this.incidentMarkers = L.layerGroup();
         this.policeUnits = L.layerGroup();
+        this.highlightMarker = null;
         this.crimeData = [];
         this.callData = [];
         this.suspectData = [];
@@ -670,16 +671,20 @@ class CrimeDashboard {
 
     updateMapFromExtractedInfo() {
         if (this.extractedInfo.postcode) {
-            // Filter crimes by postcode and update map
-            const postcodeArea = this.extractedInfo.postcode.split(' ')[0];
-            document.getElementById('postcode-filter').value = postcodeArea;
+            // Filter crimes by exact postcode first, then postcode area
+            const exactPostcode = this.extractedInfo.postcode.trim().toUpperCase();
+            const postcodeArea = exactPostcode.split(' ')[0];
+
+            console.log('🎯 Filtering by postcode:', exactPostcode);
+            document.getElementById('postcode-filter').value = exactPostcode;
 
             if (this.extractedInfo.crimeType) {
                 document.getElementById('crime-type-filter').value = this.extractedInfo.crimeType;
+                console.log('🎯 Filtering by crime type:', this.extractedInfo.crimeType);
             }
 
             this.updateFilters();
-            this.focusOnPostcode(this.extractedInfo.postcode);
+            this.focusOnPostcode(exactPostcode);
 
             // Show priority alert
             this.showLiveAlert();
@@ -787,18 +792,111 @@ class CrimeDashboard {
     }
 
     focusOnPostcode(postcode) {
-        // Find crimes near this postcode and focus map
-        const nearbycrimes = this.crimeData.filter(crime =>
-            crime.Postcode && crime.Postcode.includes(postcode.split(' ')[0])
+        console.log('🔍 Looking for postcode:', postcode);
+
+        // First try to find exact postcode match
+        let matchingCrimes = this.crimeData.filter(crime =>
+            crime.Postcode && crime.Postcode.trim().toUpperCase() === postcode.toUpperCase()
         );
 
-        if (nearbycrimes.length > 0) {
-            const lat = parseFloat(nearbycrimes[0].Latitude);
-            const lng = parseFloat(nearbycrimes[0].Longitude);
-            if (!isNaN(lat) && !isNaN(lng)) {
+        console.log('📍 Exact postcode matches found:', matchingCrimes.length);
+
+        let searchMethod = 'exact';
+
+        // If no exact match, try postcode area (first part)
+        if (matchingCrimes.length === 0) {
+            const postcodeArea = postcode.split(' ')[0];
+            matchingCrimes = this.crimeData.filter(crime =>
+                crime.Postcode && crime.Postcode.toUpperCase().startsWith(postcodeArea.toUpperCase())
+            );
+            console.log('📍 Postcode area matches found:', matchingCrimes.length, 'for area:', postcodeArea);
+            searchMethod = 'area';
+        }
+
+        if (matchingCrimes.length > 0) {
+            // Calculate the center point of all matching crimes for better accuracy
+            const validCrimes = matchingCrimes.filter(crime =>
+                crime.Latitude && crime.Longitude &&
+                !isNaN(parseFloat(crime.Latitude)) && !isNaN(parseFloat(crime.Longitude))
+            );
+
+            if (validCrimes.length > 0) {
+                // If we found exact matches or multiple area matches, use center point
+                let lat, lng;
+
+                if (searchMethod === 'exact' || validCrimes.length > 5) {
+                    // Calculate center of all matches
+                    const avgLat = validCrimes.reduce((sum, crime) => sum + parseFloat(crime.Latitude), 0) / validCrimes.length;
+                    const avgLng = validCrimes.reduce((sum, crime) => sum + parseFloat(crime.Longitude), 0) / validCrimes.length;
+                    lat = avgLat;
+                    lng = avgLng;
+                    console.log('🎯 Using center point of', validCrimes.length, 'matches');
+                } else {
+                    // Use first match for area searches with few results
+                    lat = parseFloat(validCrimes[0].Latitude);
+                    lng = parseFloat(validCrimes[0].Longitude);
+                    console.log('🎯 Using first match from area search');
+                }
+
+                console.log('🎯 Focusing map on coordinates:', lat, lng, 'for postcode:', postcode);
                 this.map.setView([lat, lng], 15);
+
+                // Add a temporary marker to highlight the location
+                this.highlightLocationTemporarily(lat, lng, postcode);
+            }
+        } else {
+            console.log('❌ No location found for postcode:', postcode, '- using approximate location');
+            // If no data match found, use approximate UK postcode coordinates
+            const approxCoords = this.getApproximatePostcodeLocation(postcode);
+            if (approxCoords) {
+                console.log('📍 Using approximate coordinates for', postcode, ':', approxCoords);
+                this.map.setView([approxCoords.lat, approxCoords.lng], 15);
+                this.highlightLocationTemporarily(approxCoords.lat, approxCoords.lng, postcode + ' (Approx)');
             }
         }
+    }
+
+    getApproximatePostcodeLocation(postcode) {
+        // Approximate coordinates for common London postcode areas
+        const postcodeAreas = {
+            'N1': { lat: 51.5311, lng: -0.1022 }, // Islington
+            'E1': { lat: 51.5154, lng: -0.0714 }, // Whitechapel
+            'W1': { lat: 51.5174, lng: -0.1372 }, // West End
+            'SW1': { lat: 51.4975, lng: -0.1357 }, // Westminster
+            'SE1': { lat: 51.5041, lng: -0.0967 }, // Southwark
+            'NW1': { lat: 51.5355, lng: -0.1426 }, // Camden
+            'EC1': { lat: 51.5211, lng: -0.1051 }, // Clerkenwell
+            'EC2': { lat: 51.5155, lng: -0.0922 }, // City of London
+            'WC1': { lat: 51.5252, lng: -0.1308 }, // Bloomsbury
+            'WC2': { lat: 51.5120, lng: -0.1269 }, // Covent Garden
+        };
+
+        const area = postcode.split(' ')[0].toUpperCase();
+        return postcodeAreas[area] || null;
+    }
+
+    highlightLocationTemporarily(lat, lng, postcode) {
+        // Remove any existing highlight marker
+        if (this.highlightMarker) {
+            this.map.removeLayer(this.highlightMarker);
+        }
+
+        // Add a highlighted marker for the spoken postcode
+        this.highlightMarker = L.marker([lat, lng], {
+            icon: L.divIcon({
+                html: `<div style="background-color: #e74c3c; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold;">📞 ${postcode}</div>`,
+                iconSize: [100, 30],
+                className: 'highlight-marker'
+            })
+        }).addTo(this.map);
+
+        // Remove the highlight after 10 seconds
+        setTimeout(() => {
+            if (this.highlightMarker) {
+                this.map.removeLayer(this.highlightMarker);
+                this.highlightMarker = null;
+            }
+        }, 10000);
     }
 
     showPriorityAlert(call) {
