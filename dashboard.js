@@ -16,6 +16,7 @@ class CrimeDashboard {
         // Voice recognition properties
         this.recognition = null;
         this.isListening = false;
+        this.shouldBeListening = false;
         this.currentTranscript = '';
         this.extractedInfo = {
             name: null,
@@ -432,61 +433,98 @@ class CrimeDashboard {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
         if (!SpeechRecognition) {
-            console.error('Speech recognition not supported in this browser');
+            console.error('Speech recognition not supported in this browser. Please use Chrome or Edge.');
             document.getElementById('start-listening-btn').disabled = true;
+            document.getElementById('live-transcript').innerHTML = '<div style="color: #e74c3c; font-style: italic;">⚠️ Speech recognition not supported. Please use Chrome or Edge.</div>';
             return;
         }
 
         this.recognition = new SpeechRecognition();
         this.recognition.continuous = true;
         this.recognition.interimResults = true;
-        this.recognition.lang = 'en-UK';
+        this.recognition.lang = 'en-GB';
+        this.recognition.maxAlternatives = 1;
 
         this.recognition.onstart = () => {
             this.isListening = true;
             this.updateListeningUI();
-            console.log('Voice recognition started');
+            console.log('🎤 Voice recognition started - speak now!');
+            this.showListeningFeedback();
         };
 
         this.recognition.onresult = (event) => {
             let finalTranscript = '';
             let interimTranscript = '';
 
+            console.log('📝 Speech recognition result received, processing...');
+
             for (let i = event.resultIndex; i < event.results.length; i++) {
                 const transcript = event.results[i][0].transcript;
+                console.log(`Result ${i}: ${transcript} (final: ${event.results[i].isFinal})`);
+
                 if (event.results[i].isFinal) {
-                    finalTranscript += transcript;
+                    finalTranscript += transcript + ' ';
                 } else {
                     interimTranscript += transcript;
                 }
             }
 
+            // Process both final and interim results for real-time updates
+            const fullText = this.currentTranscript + finalTranscript + interimTranscript;
+
+            // Extract info from interim results too for immediate updates
+            this.extractInformationFromText(fullText);
+            this.updateExtractedInfoDisplay();
+            this.updateMapFromExtractedInfo();
+
             if (finalTranscript) {
-                this.processVoiceInput(finalTranscript);
+                this.currentTranscript += finalTranscript;
+                console.log('📄 Final transcript:', this.currentTranscript);
             }
 
             // Update live transcript display
-            this.updateTranscriptDisplay(this.currentTranscript + finalTranscript, interimTranscript);
+            this.updateTranscriptDisplay(this.currentTranscript, interimTranscript);
         };
 
         this.recognition.onerror = (event) => {
-            console.error('Speech recognition error:', event.error);
+            console.error('🔴 Speech recognition error:', event.error);
+            if (event.error === 'not-allowed') {
+                alert('Microphone access was denied. Please:\n1. Click the microphone icon in your browser\'s address bar\n2. Select "Allow" for microphone access\n3. Refresh the page and try again');
+                this.shouldBeListening = false;
+            } else if (event.error === 'no-speech') {
+                console.log('No speech detected, continuing to listen...');
+                // Don't stop listening on no-speech, just continue
+                return;
+            } else {
+                alert(`Speech recognition error: ${event.error}. Make sure you are using Chrome/Edge with HTTPS or localhost.`);
+            }
             this.stopListening();
         };
 
         this.recognition.onend = () => {
+            console.log('🔴 Voice recognition ended');
             this.isListening = false;
             this.updateListeningUI();
-            console.log('Voice recognition ended');
+            // Auto-restart if we were supposed to be listening (unless manually stopped)
+            if (this.shouldBeListening) {
+                console.log('🔄 Auto-restarting speech recognition...');
+                setTimeout(() => {
+                    if (this.shouldBeListening) {
+                        this.recognition.start();
+                    }
+                }, 100);
+            }
         };
     }
 
-    startListening() {
+    async startListening() {
         if (!this.recognition) {
-            alert('Speech recognition not available in this browser');
+            alert('Speech recognition not available in this browser. Please use Chrome or Edge.');
             return;
         }
 
+        console.log('🚀 Starting voice recognition...');
+        this.shouldBeListening = true;
         this.currentTranscript = '';
         this.extractedInfo = {
             name: null,
@@ -497,13 +535,31 @@ class CrimeDashboard {
         };
 
         this.clearExtractedInfoDisplay();
-        this.recognition.start();
+
+        try {
+            this.recognition.start();
+        } catch (error) {
+            console.error('Error starting recognition:', error);
+            alert('Error starting voice recognition: ' + error.message + '. Make sure you are using HTTPS or localhost.');
+        }
     }
 
     stopListening() {
+        console.log('🛑 Stopping voice recognition...');
+        this.shouldBeListening = false;
         if (this.recognition && this.isListening) {
             this.recognition.stop();
         }
+    }
+
+    showPermissionMessage(message) {
+        const transcriptBox = document.getElementById('live-transcript');
+        transcriptBox.innerHTML = `<div style="color: #e74c3c; font-style: italic;">⚠️ ${message}</div>`;
+    }
+
+    showListeningFeedback() {
+        const transcriptBox = document.getElementById('live-transcript');
+        transcriptBox.innerHTML = '<div style="color: #27ae60; font-style: italic;">🎤 Listening... Start speaking!</div>';
     }
 
     processVoiceInput(text) {
@@ -519,28 +575,33 @@ class CrimeDashboard {
 
     extractInformationFromText(text) {
         const lowerText = text.toLowerCase();
+        console.log('🔍 Analyzing text:', text);
 
         // Extract postcode (UK format: letters-numbers-letters)
         const postcodeMatch = text.match(/\b[A-Z]{1,2}[0-9][A-Z0-9]?\s?[0-9][A-Z]{2}\b/gi);
         if (postcodeMatch && !this.extractedInfo.postcode) {
             this.extractedInfo.postcode = postcodeMatch[0].toUpperCase();
+            console.log('✅ Found postcode:', this.extractedInfo.postcode);
         }
 
-        // Extract crime type
-        const crimeTypes = ['theft', 'bicycle theft', 'bike theft', 'stolen bike', 'stolen bicycle',
-                           'purse stolen', 'wallet stolen', 'phone stolen', 'mugging', 'robbery',
-                           'shoplifting', 'burglary', 'assault'];
+        // Extract crime type - more comprehensive detection
+        const crimeTypes = [
+            { keywords: ['bike', 'bicycle'], type: 'Bicycle theft' },
+            { keywords: ['purse', 'wallet', 'phone', 'bag'], type: 'Theft from the person' },
+            { keywords: ['mugging', 'mugged'], type: 'Theft from the person' },
+            { keywords: ['shoplifting', 'shop'], type: 'Shoplifting' },
+            { keywords: ['burglary', 'broke in'], type: 'Burglary' },
+            { keywords: ['assault', 'attacked'], type: 'Violence and sexual offences' },
+            { keywords: ['theft', 'stolen'], type: 'Theft from the person' }
+        ];
 
-        for (const crimeType of crimeTypes) {
-            if (lowerText.includes(crimeType) && !this.extractedInfo.crimeType) {
-                if (crimeType.includes('bike') || crimeType.includes('bicycle')) {
-                    this.extractedInfo.crimeType = 'Bicycle theft';
-                } else if (crimeType.includes('theft') || crimeType.includes('stolen')) {
-                    this.extractedInfo.crimeType = 'Theft from the person';
-                } else {
-                    this.extractedInfo.crimeType = crimeType;
+        if (!this.extractedInfo.crimeType) {
+            for (const crime of crimeTypes) {
+                if (crime.keywords.some(keyword => lowerText.includes(keyword))) {
+                    this.extractedInfo.crimeType = crime.type;
+                    console.log('✅ Found crime type:', this.extractedInfo.crimeType);
+                    break;
                 }
-                break;
             }
         }
 
@@ -551,27 +612,34 @@ class CrimeDashboard {
             /this is ([a-zA-Z\s]+)/i
         ];
 
-        for (const pattern of namePatterns) {
-            const nameMatch = text.match(pattern);
-            if (nameMatch && !this.extractedInfo.name) {
-                this.extractedInfo.name = nameMatch[1].trim();
-                break;
+        if (!this.extractedInfo.name) {
+            for (const pattern of namePatterns) {
+                const nameMatch = text.match(pattern);
+                if (nameMatch) {
+                    this.extractedInfo.name = nameMatch[1].trim();
+                    console.log('✅ Found name:', this.extractedInfo.name);
+                    break;
+                }
             }
         }
 
-        // Extract location mentions
+        // Extract location mentions - improved patterns
         const locationPatterns = [
-            /(?:at|on|near|outside|in front of|by)\s+([A-Za-z0-9\s,]+?)(?:\s|$|\.|\,)/gi,
-            /([A-Za-z\s]+(?:street|road|avenue|lane|station|park|shop|store|centre|center))/gi
+            /(?:at|on|near|outside|in front of|by|in)\s+([A-Za-z0-9\s,]+?)(?:\s|$|\.|\,)/gi,
+            /([A-Za-z\s]+(?:street|road|avenue|lane|station|park|shop|store|centre|center|square|market|tube|underground))/gi
         ];
 
-        for (const pattern of locationPatterns) {
-            const matches = text.matchAll(pattern);
-            for (const match of matches) {
-                if (match[1] && match[1].length > 3 && !this.extractedInfo.location) {
-                    this.extractedInfo.location = match[1].trim();
-                    break;
+        if (!this.extractedInfo.location) {
+            for (const pattern of locationPatterns) {
+                const matches = [...text.matchAll(pattern)];
+                for (const match of matches) {
+                    if (match[1] && match[1].length > 3 && match[1].length < 50) {
+                        this.extractedInfo.location = match[1].trim();
+                        console.log('✅ Found location:', this.extractedInfo.location);
+                        break;
+                    }
                 }
+                if (this.extractedInfo.location) break;
             }
         }
     }
