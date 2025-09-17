@@ -294,17 +294,45 @@ class CrimeDashboard {
 
     updateFilters() {
         const crimeType = document.getElementById('crime-type-filter').value;
-        const postcode = document.getElementById('postcode-filter').value.toUpperCase();
+        const postcodeFilter = document.getElementById('postcode-filter').value.trim().toUpperCase();
         const dateFrom = document.getElementById('date-from').value;
         const dateTo = document.getElementById('date-to').value;
         const timeFilter = document.getElementById('time-filter').value;
+
+        console.log('🔍 Filtering with postcode:', postcodeFilter);
 
         this.filteredData = this.crimeData.filter(crime => {
             // Crime type filter
             if (crimeType && crime['Crime type'] !== crimeType) return false;
 
-            // Postcode filter
-            if (postcode && (!crime.Postcode || !crime.Postcode.toUpperCase().includes(postcode))) return false;
+            // Postcode filter - improved logic
+            if (postcodeFilter && postcodeFilter.length > 0) {
+                if (!crime.Postcode) return false;
+
+                const crimePostcode = crime.Postcode.toUpperCase().trim();
+
+                // Try different matching strategies
+                let postcodeMatch = false;
+
+                // 1. Exact match
+                if (crimePostcode === postcodeFilter) {
+                    postcodeMatch = true;
+                }
+                // 2. Area match (first part of postcode)
+                else {
+                    const filterArea = postcodeFilter.split(' ')[0];
+                    const crimeArea = crimePostcode.split(' ')[0];
+                    if (crimeArea === filterArea) {
+                        postcodeMatch = true;
+                    }
+                    // 3. Partial match for flexible searching
+                    else if (crimePostcode.includes(filterArea) || filterArea.length >= 2 && crimeArea.startsWith(filterArea.substring(0, 2))) {
+                        postcodeMatch = true;
+                    }
+                }
+
+                if (!postcodeMatch) return false;
+            }
 
             // Date filters
             if (dateFrom || dateTo) {
@@ -315,6 +343,8 @@ class CrimeDashboard {
 
             return true;
         });
+
+        console.log('📊 Filtered results:', this.filteredData.length, 'crimes found');
 
         this.updateVisualization();
         this.updateStatistics();
@@ -671,19 +701,42 @@ class CrimeDashboard {
 
     updateMapFromExtractedInfo() {
         if (this.extractedInfo.postcode) {
-            // Filter crimes by exact postcode first, then postcode area
             const exactPostcode = this.extractedInfo.postcode.trim().toUpperCase();
-            const postcodeArea = exactPostcode.split(' ')[0];
 
-            console.log('🎯 Filtering by postcode:', exactPostcode);
+            console.log('🎯 Processing postcode:', exactPostcode);
+
+            // Don't filter the data - just update the display fields and center the map
             document.getElementById('postcode-filter').value = exactPostcode;
 
             if (this.extractedInfo.crimeType) {
                 document.getElementById('crime-type-filter').value = this.extractedInfo.crimeType;
-                console.log('🎯 Filtering by crime type:', this.extractedInfo.crimeType);
+                console.log('🎯 Setting crime type filter:', this.extractedInfo.crimeType);
             }
 
-            this.updateFilters();
+            // Apply crime type filter only (if specified), but keep all postcode data visible
+            if (this.extractedInfo.crimeType) {
+                this.filteredData = this.crimeData.filter(crime =>
+                    crime['Crime type'] === this.extractedInfo.crimeType &&
+                    crime.Latitude && crime.Longitude &&
+                    !isNaN(parseFloat(crime.Latitude)) && !isNaN(parseFloat(crime.Longitude))
+                );
+                console.log('📊 Filtered to', this.filteredData.length, 'crimes of type:', this.extractedInfo.crimeType);
+            } else {
+                // Keep all data visible on the map
+                this.filteredData = this.crimeData.filter(row =>
+                    row.Latitude && row.Longitude &&
+                    !isNaN(parseFloat(row.Latitude)) &&
+                    !isNaN(parseFloat(row.Longitude))
+                );
+                console.log('📊 Keeping all', this.filteredData.length, 'crimes visible on map');
+            }
+
+            // Update the visualization with the filtered data
+            this.updateVisualization();
+            this.updateStatistics();
+            this.updateHotspots();
+
+            // Center the map on the spoken postcode location (using approximate coordinates)
             this.focusOnPostcode(exactPostcode);
 
             // Show priority alert
