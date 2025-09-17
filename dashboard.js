@@ -1,3 +1,284 @@
+// Advanced Sentiment Analyzer for Emergency Calls
+class AdvancedSentimentAnalyzer {
+    constructor() {
+        this.initializeEmotionLexicon();
+        this.initializeContextPatterns();
+        this.temporalWindow = 10000; // 10 seconds for temporal analysis
+        this.confidenceThresholds = {
+            calm: 0.3,
+            upset: 0.5,
+            angry: 0.6,
+            distressed: 0.7
+        };
+    }
+
+    initializeEmotionLexicon() {
+        // Comprehensive emotion lexicon with intensity scores (0-1)
+        this.emotionLexicon = {
+            distressed: {
+                high: ['terrified', 'panicking', 'desperate', 'hysterical', 'traumatized', 'devastated', 'horrified', 'petrified', 'overwhelmed', 'breakdown'],
+                medium: ['scared', 'frightened', 'worried', 'anxious', 'nervous', 'shaken', 'disturbed', 'upset', 'concerned', 'troubled', 'distressed', 'alarmed'],
+                low: ['uneasy', 'uncomfortable', 'bothered', 'unsettled', 'tense', 'restless', 'jittery', 'on edge']
+            },
+            angry: {
+                high: ['furious', 'livid', 'enraged', 'outraged', 'seething', 'incensed', 'irate', 'raging', 'infuriated'],
+                medium: ['angry', 'mad', 'pissed', 'annoyed', 'frustrated', 'irritated', 'agitated', 'heated', 'ticked off'],
+                low: ['bothered', 'miffed', 'displeased', 'irked', 'cross', 'vexed']
+            },
+            upset: {
+                high: ['devastated', 'heartbroken', 'distraught', 'crushed', 'shattered'],
+                medium: ['upset', 'sad', 'hurt', 'disappointed', 'distressed', 'troubled', 'grieved', 'sorrowful'],
+                low: ['down', 'blue', 'unhappy', 'melancholy', 'dejected', 'discouraged']
+            },
+            calm: {
+                high: ['composed', 'serene', 'tranquil', 'peaceful', 'relaxed'],
+                medium: ['calm', 'collected', 'steady', 'stable', 'controlled', 'level-headed'],
+                low: ['okay', 'fine', 'alright', 'normal', 'routine']
+            }
+        };
+
+        // Create flat lookup with weighted scores
+        this.wordScores = {};
+        for (const [emotion, levels] of Object.entries(this.emotionLexicon)) {
+            this.wordScores[emotion] = {};
+
+            // High intensity words
+            levels.high?.forEach(word => {
+                this.wordScores[emotion][word] = 1.0;
+            });
+
+            // Medium intensity words
+            levels.medium?.forEach(word => {
+                this.wordScores[emotion][word] = 0.6;
+            });
+
+            // Low intensity words
+            levels.low?.forEach(word => {
+                this.wordScores[emotion][word] = 0.3;
+            });
+        }
+    }
+
+    initializeContextPatterns() {
+        this.contextPatterns = {
+            distressed: {
+                phrases: [
+                    'help me', 'please help', 'i need help', 'what do i do', 'i don\'t know what to do',
+                    'i can\'t handle this', 'this is too much', 'i\'m losing it', 'i\'m falling apart',
+                    'i\'m so scared', 'i\'m terrified', 'i\'m panicking', 'i can\'t breathe', 'i\'m shaking'
+                ],
+                negations: ['not calm', 'not okay', 'not fine', 'not alright'],
+                intensifiers: ['really', 'very', 'extremely', 'incredibly', 'absolutely', 'completely'],
+                weight: 1.5
+            },
+            angry: {
+                phrases: [
+                    'i\'m so angry', 'this is ridiculous', 'i can\'t believe', 'what the hell', 'this is insane',
+                    'i\'m fed up', 'i\'ve had enough', 'this is outrageous', 'i\'m sick of this'
+                ],
+                expletives: ['damn', 'shit', 'fuck', 'bloody hell', 'bastard', 'asshole'],
+                intensifiers: ['so', 'really', 'extremely', 'absolutely', 'totally'],
+                weight: 1.3
+            },
+            upset: {
+                phrases: [
+                    'i\'m upset', 'i\'m sad', 'this is awful', 'i can\'t believe this happened',
+                    'this is terrible', 'i\'m heartbroken', 'i\'m disappointed', 'this hurts'
+                ],
+                negations: ['not happy', 'not good', 'not well'],
+                weight: 1.2
+            },
+            calm: {
+                phrases: [
+                    'i need to report', 'i would like to report', 'i\'m calling to report',
+                    'this happened', 'i want to file a report', 'i\'m reporting', 'for the record'
+                ],
+                qualifiers: ['just', 'simply', 'merely', 'only'],
+                weight: 1.1
+            }
+        };
+
+        // Speech patterns that indicate emotional state
+        this.speechPatterns = {
+            repetition: /(\b\w+\b)\s+\1/gi, // "help help" or "please please"
+            allCaps: /\b[A-Z]{2,}\b/g, // Words in ALL CAPS
+            exclamation: /[!]+/g, // Exclamation marks
+            question: /[?]+/g, // Question marks
+            interruption: /\b(um|uh|er|ah)\b/gi, // Hesitation/interruption
+            elongation: /(\w)\1{2,}/gi // Elongated words like "nooooo"
+        };
+    }
+
+    analyzeSentiment(text, previousStates = []) {
+        const normalizedText = text.toLowerCase().trim();
+        if (!normalizedText) return { emotion: 'calm', confidence: 0 };
+
+        console.log('🧠 Advanced sentiment analysis for:', text);
+
+        // Multi-layered analysis
+        const wordLevelScores = this.analyzeWordLevel(normalizedText);
+        const phraseLevelScores = this.analyzePhraseLevel(normalizedText);
+        const syntacticScores = this.analyzeSyntacticLevel(normalizedText);
+        const contextScores = this.analyzeContextLevel(normalizedText, previousStates);
+
+        // Combine all scores with weights
+        const combinedScores = {
+            distressed: 0,
+            angry: 0,
+            upset: 0,
+            calm: 0.1 // Slight baseline for calm
+        };
+
+        // Word level (40% weight)
+        for (const [emotion, score] of Object.entries(wordLevelScores)) {
+            combinedScores[emotion] += score * 0.4;
+        }
+
+        // Phrase level (30% weight)
+        for (const [emotion, score] of Object.entries(phraseLevelScores)) {
+            combinedScores[emotion] += score * 0.3;
+        }
+
+        // Syntactic level (20% weight)
+        for (const [emotion, score] of Object.entries(syntacticScores)) {
+            combinedScores[emotion] += score * 0.2;
+        }
+
+        // Context level (10% weight)
+        for (const [emotion, score] of Object.entries(contextScores)) {
+            combinedScores[emotion] += score * 0.1;
+        }
+
+        // Find dominant emotion with confidence threshold
+        let dominantEmotion = 'calm';
+        let maxScore = combinedScores.calm;
+
+        for (const [emotion, score] of Object.entries(combinedScores)) {
+            if (score > maxScore && score >= this.confidenceThresholds[emotion]) {
+                maxScore = score;
+                dominantEmotion = emotion;
+            }
+        }
+
+        console.log('📊 Sentiment scores:', combinedScores);
+        console.log('🎯 Detected emotion:', dominantEmotion, 'confidence:', maxScore.toFixed(2));
+
+        return {
+            emotion: dominantEmotion,
+            confidence: Math.min(maxScore, 1.0),
+            scores: combinedScores
+        };
+    }
+
+    analyzeWordLevel(text) {
+        const words = text.split(/\s+/);
+        const scores = { distressed: 0, angry: 0, upset: 0, calm: 0 };
+
+        for (const word of words) {
+            for (const [emotion, wordMap] of Object.entries(this.wordScores)) {
+                if (wordMap[word]) {
+                    scores[emotion] += wordMap[word];
+                }
+            }
+        }
+
+        return scores;
+    }
+
+    analyzePhraseLevel(text) {
+        const scores = { distressed: 0, angry: 0, upset: 0, calm: 0 };
+
+        for (const [emotion, patterns] of Object.entries(this.contextPatterns)) {
+            // Check phrases
+            if (patterns.phrases) {
+                for (const phrase of patterns.phrases) {
+                    if (text.includes(phrase)) {
+                        scores[emotion] += patterns.weight;
+                    }
+                }
+            }
+
+            // Check expletives (for angry)
+            if (patterns.expletives) {
+                for (const expletive of patterns.expletives) {
+                    if (text.includes(expletive)) {
+                        scores[emotion] += patterns.weight * 1.2;
+                    }
+                }
+            }
+
+            // Check negations
+            if (patterns.negations) {
+                for (const negation of patterns.negations) {
+                    if (text.includes(negation)) {
+                        scores[emotion] += patterns.weight * 0.8;
+                    }
+                }
+            }
+        }
+
+        return scores;
+    }
+
+    analyzeSyntacticLevel(text) {
+        const scores = { distressed: 0, angry: 0, upset: 0, calm: 0 };
+
+        // Check speech patterns
+        if (this.speechPatterns.repetition.test(text)) {
+            scores.distressed += 0.3;
+        }
+
+        if (this.speechPatterns.allCaps.test(text)) {
+            scores.angry += 0.4;
+            scores.distressed += 0.2;
+        }
+
+        const exclamationCount = (text.match(this.speechPatterns.exclamation) || []).length;
+        if (exclamationCount > 0) {
+            scores.angry += exclamationCount * 0.2;
+            scores.distressed += exclamationCount * 0.15;
+        }
+
+        if (this.speechPatterns.interruption.test(text)) {
+            scores.upset += 0.2;
+            scores.distressed += 0.1;
+        }
+
+        if (this.speechPatterns.elongation.test(text)) {
+            scores.distressed += 0.3;
+        }
+
+        return scores;
+    }
+
+    analyzeContextLevel(text, previousStates) {
+        const scores = { distressed: 0, angry: 0, upset: 0, calm: 0 };
+
+        // Temporal analysis - emotional escalation
+        if (previousStates.length > 0) {
+            const recentStates = previousStates.slice(-3); // Last 3 states
+            const avgIntensity = recentStates.reduce((sum, state) => sum + state.confidence, 0) / recentStates.length;
+
+            // If emotional intensity is increasing, boost non-calm emotions
+            if (avgIntensity > 0.3) {
+                scores.distressed += avgIntensity * 0.2;
+                scores.upset += avgIntensity * 0.15;
+                scores.angry += avgIntensity * 0.1;
+            }
+        }
+
+        // Emergency call context - certain words have higher weight
+        const emergencyIndicators = ['stolen', 'robbed', 'attacked', 'hurt', 'emergency', 'happened', 'incident'];
+        for (const indicator of emergencyIndicators) {
+            if (text.includes(indicator)) {
+                scores.upset += 0.1;
+            }
+        }
+
+        return scores;
+    }
+}
+
 // Dashboard JavaScript for London Crime Heatmap
 class CrimeDashboard {
     constructor() {
@@ -26,6 +307,16 @@ class CrimeDashboard {
             crimeType: null,
             description: null
         };
+
+        // Emotional analysis properties
+        this.emotionalState = {
+            current: 'calm',
+            confidence: 0,
+            history: []
+        };
+
+        // Initialize advanced sentiment analyzer
+        this.sentimentAnalyzer = new AdvancedSentimentAnalyzer();
 
         this.initializeMap();
         this.loadData();
@@ -608,6 +899,9 @@ class CrimeDashboard {
         const lowerText = text.toLowerCase();
         console.log('🔍 Analyzing text:', text);
 
+        // Analyze emotional state
+        this.analyzeEmotionalState(text);
+
         // Extract postcode (UK format: letters-numbers-letters)
         const postcodeMatch = text.match(/\b[A-Z]{1,2}[0-9][A-Z0-9]?\s?[0-9][A-Z]{2}\b/gi);
         if (postcodeMatch && !this.extractedInfo.postcode) {
@@ -675,6 +969,38 @@ class CrimeDashboard {
         }
     }
 
+    analyzeEmotionalState(text) {
+        // Use the advanced sentiment analyzer
+        const result = this.sentimentAnalyzer.analyzeSentiment(text, this.emotionalState.history);
+
+        // Apply temporal smoothing to prevent rapid emotional changes
+        const significantChange = Math.abs(result.confidence - this.emotionalState.confidence) > 0.1;
+        const emotionChange = result.emotion !== this.emotionalState.current;
+
+        if (emotionChange || significantChange) {
+            // Update emotional state
+            this.emotionalState.current = result.emotion;
+            this.emotionalState.confidence = result.confidence;
+
+            // Add to history for temporal analysis
+            this.emotionalState.history.push({
+                emotion: result.emotion,
+                confidence: result.confidence,
+                timestamp: new Date(),
+                text: text.substring(0, 50) + '...',
+                scores: result.scores
+            });
+
+            // Keep only recent history (last 10 states)
+            if (this.emotionalState.history.length > 10) {
+                this.emotionalState.history = this.emotionalState.history.slice(-10);
+            }
+
+            console.log('🎭 Updated emotional state:', result.emotion, 'confidence:', result.confidence.toFixed(2));
+            this.updateEmotionalBanner();
+        }
+    }
+
     updateTranscriptDisplay(finalText, interimText) {
         const transcriptBox = document.getElementById('live-transcript');
         transcriptBox.innerHTML = finalText + '<span style="color: #95a5a6;">' + interimText + '</span>';
@@ -697,6 +1023,67 @@ class CrimeDashboard {
 
         const transcriptBox = document.getElementById('live-transcript');
         transcriptBox.innerHTML = '<div style="color: #27ae60; font-style: italic;">🎤 Listening for emergency call...</div>';
+
+        // Reset emotional state
+        this.emotionalState = {
+            current: 'calm',
+            confidence: 0,
+            history: []
+        };
+        this.updateEmotionalBanner();
+    }
+
+    updateEmotionalBanner() {
+        const banner = document.getElementById('emotional-banner');
+        const stateText = document.getElementById('emotional-state');
+        const guidanceText = document.getElementById('dispatcher-guidance');
+
+        if (!banner) return;
+
+        const emotions = {
+            calm: {
+                color: '#27ae60',
+                bgColor: 'rgba(39, 174, 96, 0.1)',
+                icon: '😌',
+                state: 'Caller sounds calm',
+                guidance: 'Standard procedure — gather information efficiently.'
+            },
+            upset: {
+                color: '#f39c12',
+                bgColor: 'rgba(243, 156, 18, 0.1)',
+                icon: '😟',
+                state: 'Caller sounds upset',
+                guidance: 'Show empathy — acknowledge their concern and provide reassurance.'
+            },
+            angry: {
+                color: '#e74c3c',
+                bgColor: 'rgba(231, 76, 60, 0.1)',
+                icon: '😠',
+                state: 'Caller sounds angry',
+                guidance: 'Stay calm — let them vent briefly, then redirect to facts.'
+            },
+            distressed: {
+                color: '#8e44ad',
+                bgColor: 'rgba(142, 68, 173, 0.1)',
+                icon: '😰',
+                state: 'Caller sounds highly distressed',
+                guidance: 'Take extra time to reassure — speak slowly and calmly.'
+            }
+        };
+
+        const emotion = emotions[this.emotionalState.current];
+
+        banner.style.backgroundColor = emotion.bgColor;
+        banner.style.borderLeft = `4px solid ${emotion.color}`;
+        banner.style.display = 'block';
+
+        stateText.innerHTML = `${emotion.icon} ${emotion.state}`;
+        stateText.style.color = emotion.color;
+
+        guidanceText.textContent = emotion.guidance;
+        guidanceText.style.color = '#ecf0f1';
+
+        console.log('🎭 Updated emotional banner:', this.emotionalState.current);
     }
 
     updateMapFromExtractedInfo() {

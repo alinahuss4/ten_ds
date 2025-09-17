@@ -238,6 +238,31 @@
             color: #95a5a6;
             font-size: 0.75rem;
         }
+
+        .emotional-banner {
+            margin-bottom: 15px;
+            padding: 12px;
+            border-radius: 6px;
+            border-left: 4px solid;
+            animation: fadeIn 0.5s ease-in;
+        }
+
+        .emotional-state {
+            font-weight: bold;
+            font-size: 0.9rem;
+            margin-bottom: 5px;
+        }
+
+        .dispatcher-guidance {
+            font-size: 0.8rem;
+            font-style: italic;
+            opacity: 0.9;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
     </style>
 </head>
 <body>
@@ -254,6 +279,13 @@
         <aside class="sidebar">
             <div class="call-panel">
                 <h3><i class="fas fa-phone"></i> Live Emergency Call</h3>
+
+                <!-- Emotional State Banner -->
+                <div id="emotional-banner" class="emotional-banner" style="display: none;">
+                    <div id="emotional-state" class="emotional-state"></div>
+                    <div id="dispatcher-guidance" class="dispatcher-guidance"></div>
+                </div>
+
                 <div class="transcript-box" id="live-transcript">
                     <div style="color: #95a5a6; font-style: italic;">Ready to listen for emergency calls. Click 'Start Listening' to begin.</div>
                 </div>
