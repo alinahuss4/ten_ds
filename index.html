@@ -253,12 +253,39 @@
 
         <aside class="sidebar">
             <div class="call-panel">
-                <h3><i class="fas fa-phone"></i> Active Call</h3>
+                <h3><i class="fas fa-phone"></i> Live Emergency Call</h3>
                 <div class="transcript-box" id="live-transcript">
-                    <div style="color: #95a5a6; font-style: italic;">Waiting for incoming call...</div>
+                    <div style="color: #95a5a6; font-style: italic;">Click 'Start Listening' to begin voice recognition...</div>
                 </div>
-                <button class="btn" onclick="simulateCall()">Simulate Emergency Call</button>
+                <button class="btn" id="start-listening-btn" onclick="startListening()">
+                    <i class="fas fa-microphone"></i> Start Listening
+                </button>
+                <button class="btn" id="stop-listening-btn" onclick="stopListening()" style="display: none; background: #e67e22;">
+                    <i class="fas fa-stop"></i> Stop Listening
+                </button>
                 <button class="btn btn-secondary" onclick="clearCall()">Clear Call</button>
+            </div>
+
+            <div class="call-panel">
+                <h3><i class="fas fa-info-circle"></i> Extracted Information</h3>
+                <div class="info-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+                    <div style="background: #1a1a1a; padding: 8px; border-radius: 4px; font-size: 0.8rem;">
+                        <strong>Name:</strong><br>
+                        <span id="extracted-name">Not provided</span>
+                    </div>
+                    <div style="background: #1a1a1a; padding: 8px; border-radius: 4px; font-size: 0.8rem;">
+                        <strong>Crime Type:</strong><br>
+                        <span id="extracted-crime-type">Not provided</span>
+                    </div>
+                    <div style="background: #1a1a1a; padding: 8px; border-radius: 4px; font-size: 0.8rem;">
+                        <strong>Location:</strong><br>
+                        <span id="extracted-location">Not provided</span>
+                    </div>
+                    <div style="background: #1a1a1a; padding: 8px; border-radius: 4px; font-size: 0.8rem;">
+                        <strong>Postcode:</strong><br>
+                        <span id="extracted-postcode">Not provided</span>
+                    </div>
+                </div>
             </div>
 
             <div class="filter-section">

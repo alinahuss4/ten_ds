@@ -13,8 +13,21 @@ class CrimeDashboard {
         this.filteredData = [];
         this.activeCall = null;
 
+        // Voice recognition properties
+        this.recognition = null;
+        this.isListening = false;
+        this.currentTranscript = '';
+        this.extractedInfo = {
+            name: null,
+            location: null,
+            postcode: null,
+            crimeType: null,
+            description: null
+        };
+
         this.initializeMap();
         this.loadData();
+        this.initializeVoiceRecognition();
         this.setupEventListeners();
         this.updateClock();
         this.startDataRefresh();
@@ -414,6 +427,223 @@ class CrimeDashboard {
         Plotly.newPlot('timeline-chart', data, layout, config);
     }
 
+    initializeVoiceRecognition() {
+        // Check if browser supports speech recognition
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+        if (!SpeechRecognition) {
+            console.error('Speech recognition not supported in this browser');
+            document.getElementById('start-listening-btn').disabled = true;
+            return;
+        }
+
+        this.recognition = new SpeechRecognition();
+        this.recognition.continuous = true;
+        this.recognition.interimResults = true;
+        this.recognition.lang = 'en-UK';
+
+        this.recognition.onstart = () => {
+            this.isListening = true;
+            this.updateListeningUI();
+            console.log('Voice recognition started');
+        };
+
+        this.recognition.onresult = (event) => {
+            let finalTranscript = '';
+            let interimTranscript = '';
+
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                const transcript = event.results[i][0].transcript;
+                if (event.results[i].isFinal) {
+                    finalTranscript += transcript;
+                } else {
+                    interimTranscript += transcript;
+                }
+            }
+
+            if (finalTranscript) {
+                this.processVoiceInput(finalTranscript);
+            }
+
+            // Update live transcript display
+            this.updateTranscriptDisplay(this.currentTranscript + finalTranscript, interimTranscript);
+        };
+
+        this.recognition.onerror = (event) => {
+            console.error('Speech recognition error:', event.error);
+            this.stopListening();
+        };
+
+        this.recognition.onend = () => {
+            this.isListening = false;
+            this.updateListeningUI();
+            console.log('Voice recognition ended');
+        };
+    }
+
+    startListening() {
+        if (!this.recognition) {
+            alert('Speech recognition not available in this browser');
+            return;
+        }
+
+        this.currentTranscript = '';
+        this.extractedInfo = {
+            name: null,
+            location: null,
+            postcode: null,
+            crimeType: null,
+            description: null
+        };
+
+        this.clearExtractedInfoDisplay();
+        this.recognition.start();
+    }
+
+    stopListening() {
+        if (this.recognition && this.isListening) {
+            this.recognition.stop();
+        }
+    }
+
+    processVoiceInput(text) {
+        this.currentTranscript += text + ' ';
+
+        // Extract information from the speech
+        this.extractInformationFromText(text);
+
+        // Update displays
+        this.updateExtractedInfoDisplay();
+        this.updateMapFromExtractedInfo();
+    }
+
+    extractInformationFromText(text) {
+        const lowerText = text.toLowerCase();
+
+        // Extract postcode (UK format: letters-numbers-letters)
+        const postcodeMatch = text.match(/\b[A-Z]{1,2}[0-9][A-Z0-9]?\s?[0-9][A-Z]{2}\b/gi);
+        if (postcodeMatch && !this.extractedInfo.postcode) {
+            this.extractedInfo.postcode = postcodeMatch[0].toUpperCase();
+        }
+
+        // Extract crime type
+        const crimeTypes = ['theft', 'bicycle theft', 'bike theft', 'stolen bike', 'stolen bicycle',
+                           'purse stolen', 'wallet stolen', 'phone stolen', 'mugging', 'robbery',
+                           'shoplifting', 'burglary', 'assault'];
+
+        for (const crimeType of crimeTypes) {
+            if (lowerText.includes(crimeType) && !this.extractedInfo.crimeType) {
+                if (crimeType.includes('bike') || crimeType.includes('bicycle')) {
+                    this.extractedInfo.crimeType = 'Bicycle theft';
+                } else if (crimeType.includes('theft') || crimeType.includes('stolen')) {
+                    this.extractedInfo.crimeType = 'Theft from the person';
+                } else {
+                    this.extractedInfo.crimeType = crimeType;
+                }
+                break;
+            }
+        }
+
+        // Extract name (after "my name is" or "I'm")
+        const namePatterns = [
+            /my name is ([a-zA-Z\s]+)/i,
+            /i'm ([a-zA-Z\s]+)/i,
+            /this is ([a-zA-Z\s]+)/i
+        ];
+
+        for (const pattern of namePatterns) {
+            const nameMatch = text.match(pattern);
+            if (nameMatch && !this.extractedInfo.name) {
+                this.extractedInfo.name = nameMatch[1].trim();
+                break;
+            }
+        }
+
+        // Extract location mentions
+        const locationPatterns = [
+            /(?:at|on|near|outside|in front of|by)\s+([A-Za-z0-9\s,]+?)(?:\s|$|\.|\,)/gi,
+            /([A-Za-z\s]+(?:street|road|avenue|lane|station|park|shop|store|centre|center))/gi
+        ];
+
+        for (const pattern of locationPatterns) {
+            const matches = text.matchAll(pattern);
+            for (const match of matches) {
+                if (match[1] && match[1].length > 3 && !this.extractedInfo.location) {
+                    this.extractedInfo.location = match[1].trim();
+                    break;
+                }
+            }
+        }
+    }
+
+    updateTranscriptDisplay(finalText, interimText) {
+        const transcriptBox = document.getElementById('live-transcript');
+        transcriptBox.innerHTML = finalText + '<span style="color: #95a5a6;">' + interimText + '</span>';
+        transcriptBox.scrollTop = transcriptBox.scrollHeight;
+    }
+
+    updateExtractedInfoDisplay() {
+        // Update the extracted information panel
+        document.getElementById('extracted-name').textContent = this.extractedInfo.name || 'Not provided';
+        document.getElementById('extracted-location').textContent = this.extractedInfo.location || 'Not provided';
+        document.getElementById('extracted-postcode').textContent = this.extractedInfo.postcode || 'Not provided';
+        document.getElementById('extracted-crime-type').textContent = this.extractedInfo.crimeType || 'Not provided';
+    }
+
+    clearExtractedInfoDisplay() {
+        document.getElementById('extracted-name').textContent = 'Listening...';
+        document.getElementById('extracted-location').textContent = 'Listening...';
+        document.getElementById('extracted-postcode').textContent = 'Listening...';
+        document.getElementById('extracted-crime-type').textContent = 'Listening...';
+
+        const transcriptBox = document.getElementById('live-transcript');
+        transcriptBox.innerHTML = '<div style="color: #27ae60; font-style: italic;">🎤 Listening for emergency call...</div>';
+    }
+
+    updateMapFromExtractedInfo() {
+        if (this.extractedInfo.postcode) {
+            // Filter crimes by postcode and update map
+            const postcodeArea = this.extractedInfo.postcode.split(' ')[0];
+            document.getElementById('postcode-filter').value = postcodeArea;
+
+            if (this.extractedInfo.crimeType) {
+                document.getElementById('crime-type-filter').value = this.extractedInfo.crimeType;
+            }
+
+            this.updateFilters();
+            this.focusOnPostcode(this.extractedInfo.postcode);
+
+            // Show priority alert
+            this.showLiveAlert();
+        }
+    }
+
+    showLiveAlert() {
+        const alertDiv = document.getElementById('priority-alert');
+        const messageSpan = document.getElementById('alert-message');
+
+        let message = 'Live Emergency Call';
+        if (this.extractedInfo.crimeType && this.extractedInfo.postcode) {
+            message = `Live Call: ${this.extractedInfo.crimeType} at ${this.extractedInfo.postcode}`;
+        }
+
+        messageSpan.textContent = message;
+        alertDiv.style.display = 'block';
+    }
+
+    updateListeningUI() {
+        const startBtn = document.getElementById('start-listening-btn');
+        const stopBtn = document.getElementById('stop-listening-btn');
+
+        if (this.isListening) {
+            startBtn.style.display = 'none';
+            stopBtn.style.display = 'inline-block';
+        } else {
+            startBtn.style.display = 'inline-block';
+            stopBtn.style.display = 'none';
+        }
+    }
+
     simulateCall() {
         if (!this.callData || this.callData.length === 0) {
             console.error('No call data available');
@@ -644,6 +874,14 @@ function togglePoliceUnits() {
 
 function updateHeatmapIntensity() {
     dashboard.updateHeatmapIntensity();
+}
+
+function startListening() {
+    dashboard.startListening();
+}
+
+function stopListening() {
+    dashboard.stopListening();
 }
 
 // Initialize dashboard when page loads
