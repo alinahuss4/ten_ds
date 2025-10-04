@@ -1,5 +1,4 @@
 # Rewire the State Hackathon
-Repository for 10 DS Hackathon
 
 ## Introducing PatrolLens
 
